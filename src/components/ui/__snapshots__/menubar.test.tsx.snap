@@ -1,0 +1,30 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Menubar > snapshot del Menubar 1`] = `
+<div>
+  <div
+    class="bg-background flex h-9 items-center gap-1 rounded-md border p-1 shadow-xs"
+    data-orientation="horizontal"
+    data-slot="menubar"
+    role="menubar"
+    style="outline: none;"
+    tabindex="0"
+  >
+    <button
+      aria-expanded="false"
+      aria-haspopup="menu"
+      class="focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex items-center rounded-sm px-2 py-1 text-sm font-medium outline-hidden select-none"
+      data-orientation="horizontal"
+      data-radix-collection-item=""
+      data-slot="menubar-trigger"
+      data-state="closed"
+      id="radix-:r9:"
+      role="menuitem"
+      tabindex="-1"
+      type="button"
+    >
+      Archivo
+    </button>
+  </div>
+</div>
+`;
