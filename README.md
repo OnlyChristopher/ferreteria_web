@@ -1,7 +1,20 @@
 
   # Ferreteria E-commerce Website
 
-  This is a code bundle for Ferreteria E-commerce Website. The original project is available at https://www.figma.com/design/IgcNriPj6rXmCUrDJJQxj1/Ferreteria-E-commerce-Website.
+  This is a code bundle for Ferreteria E-commerce Website. It includes the frontend, backend, and database setup.
+
+  ## Technologies
+  - HTML
+  - CSS
+  - JavaScript
+  - Node.js
+  - Express.js
+  - MongoDB
+  - Mongoose
+  - React.js
+  - Redux
+  - React Router
+
 
   ## Running the code
 
