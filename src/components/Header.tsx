@@ -1,4 +1,4 @@
-import { ShoppingCart, Wrench, Settings } from 'lucide-react';
+import { ShoppingCart, Wrench, Settings, History } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 
@@ -23,26 +23,35 @@ export default function Header({ currentView, onNavigate, cartItemsCount }: Head
 
           <nav className="flex items-center gap-4">
             <Button
-              variant={currentView === 'catalog' ? 'default' : 'ghost'}
+              variant="ghost"
               onClick={() => onNavigate('catalog')}
-              className={currentView === 'catalog' ? 'bg-blue-600 hover:bg-blue-700' : 'text-white hover:bg-gray-800'}
+              className={currentView === 'catalog' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'text-white hover:bg-gray-800 hover:text-white'}
             >
               Catálogo
             </Button>
             
             <Button
-              variant={currentView === 'admin' ? 'default' : 'ghost'}
+              variant="ghost"
+              onClick={() => onNavigate('sales')}
+              className={currentView === 'sales' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'text-white hover:bg-gray-800 hover:text-white'}
+            >
+              <History className="w-4 h-4 mr-2" />
+              Ventas
+            </Button>
+            
+            <Button
+              variant="ghost"
               onClick={() => onNavigate('admin')}
-              className={currentView === 'admin' ? 'bg-blue-600 hover:bg-blue-700' : 'text-white hover:bg-gray-800'}
+              className={currentView === 'admin' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'text-white hover:bg-gray-800 hover:text-white'}
             >
               <Settings className="w-4 h-4 mr-2" />
               Admin
             </Button>
 
             <Button
-              variant={currentView === 'cart' ? 'default' : 'ghost'}
+              variant="ghost"
               onClick={() => onNavigate('cart')}
-              className={`relative ${currentView === 'cart' ? 'bg-blue-600 hover:bg-blue-700' : 'text-white hover:bg-gray-800'}`}
+              className={`relative ${currentView === 'cart' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'text-white hover:bg-gray-800 hover:text-white'}`}
             >
               <ShoppingCart className="w-4 h-4 mr-2" />
               Carrito

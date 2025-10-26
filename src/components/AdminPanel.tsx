@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Plus, Edit, Trash2, Package } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -160,6 +160,36 @@ export default function AdminPanel() {
     });
   };
 
+  const handleResetProducts = async () => {
+    if (!confirm('¿Estás seguro de que quieres reinicializar el catálogo completo? Esto eliminará todos los productos actuales y cargará el catálogo completo con todas las categorías nuevas.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-2eb8085d/reset-products`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success(`Catálogo reinicializado: ${data.count} productos cargados`);
+        loadProducts();
+      } else {
+        toast.error(`Error al reinicializar catálogo: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error resetting products:', error);
+      toast.error('Error al conectar con el servidor');
+    }
+  };
+
   const handleDialogClose = () => {
     setIsDialogOpen(false);
     resetForm();
@@ -184,18 +214,33 @@ export default function AdminPanel() {
           <p className="text-gray-600">Gestiona el catálogo de productos</p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setIsDialogOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Producto
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-3">
+          <Button 
+            variant="outline" 
+            className="border-blue-600 text-blue-600 hover:bg-blue-50" 
+            onClick={handleResetProducts}
+          >
+            <Package className="w-4 h-4 mr-2" />
+            Reinicializar Catálogo
+          </Button>
+          
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setIsDialogOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nuevo Producto
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
               </DialogTitle>
+              <DialogDescription>
+                {editingProduct 
+                  ? 'Modifica la información del producto existente.' 
+                  : 'Completa los datos para agregar un nuevo producto al catálogo.'}
+              </DialogDescription>
             </DialogHeader>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -287,6 +332,7 @@ export default function AdminPanel() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Estadísticas */}
@@ -320,7 +366,7 @@ export default function AdminPanel() {
           </CardHeader>
           <CardContent>
             <div className="text-blue-600">
-              ${products.reduce((sum, p) => sum + (p.price * p.stock), 0).toFixed(2)}
+              S/ {products.reduce((sum, p) => sum + (p.price * p.stock), 0).toFixed(2)}
             </div>
           </CardContent>
         </Card>
@@ -356,7 +402,7 @@ export default function AdminPanel() {
                     <TableRow key={product.id}>
                       <TableCell>{product.name}</TableCell>
                       <TableCell>{product.category}</TableCell>
-                      <TableCell>${product.price.toFixed(2)}</TableCell>
+                      <TableCell>S/ {product.price.toFixed(2)}</TableCell>
                       <TableCell>{product.unit}</TableCell>
                       <TableCell>
                         <span className={product.stock > 10 ? 'text-green-600' : 'text-red-600'}>

@@ -119,12 +119,122 @@ app.delete(`${prefix}/products/:id`, async (c) => {
   }
 });
 
-// Inicializar algunos productos de ejemplo si la BD está vacía
-app.post(`${prefix}/init-sample-data`, async (c) => {
+// POST: Procesar una venta y actualizar stock
+app.post(`${prefix}/sales`, async (c) => {
   try {
-    const products = await kv.getByPrefix('product:');
+    const body = await c.req.json();
+    const { items, paymentMethod } = body;
     
-    if (products.length === 0) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return c.json({ success: false, error: 'No items in sale' }, 400);
+    }
+    
+    // Verificar stock disponible para todos los items
+    const productIds = items.map((item: any) => item.id);
+    const products = await kv.mget(productIds.map(id => `product:${id}`));
+    
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const product = products[i];
+      
+      if (!product) {
+        return c.json({ success: false, error: `Product ${item.id} not found` }, 404);
+      }
+      
+      if (product.stock < item.quantity) {
+        return c.json({ 
+          success: false, 
+          error: `Insufficient stock for ${product.name}. Available: ${product.stock}, Requested: ${item.quantity}` 
+        }, 400);
+      }
+    }
+    
+    // Actualizar stock de cada producto
+    const updatePromises = items.map(async (item: any) => {
+      const product = await kv.get(`product:${item.id}`);
+      const updatedProduct = {
+        ...product,
+        stock: product.stock - item.quantity,
+        updatedAt: new Date().toISOString(),
+      };
+      await kv.set(`product:${item.id}`, updatedProduct);
+      return updatedProduct;
+    });
+    
+    await Promise.all(updatePromises);
+    
+    // Crear registro de venta
+    const saleId = crypto.randomUUID();
+    const subtotal = items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
+    const tax = subtotal * 0.16;
+    const total = subtotal + tax;
+    
+    const sale = {
+      id: saleId,
+      date: new Date().toISOString(),
+      items: items.map((item: any) => ({
+        productId: item.id,
+        productName: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        unit: item.unit,
+      })),
+      subtotal,
+      tax,
+      total,
+      paymentMethod: paymentMethod || 'cash',
+    };
+    
+    await kv.set(`sale:${saleId}`, sale);
+    
+    return c.json({ success: true, sale });
+  } catch (error) {
+    console.log(`Error processing sale: ${error}`);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// GET: Obtener historial de ventas
+app.get(`${prefix}/sales`, async (c) => {
+  try {
+    const sales = await kv.getByPrefix('sale:');
+    // Ordenar por fecha descendente (más recientes primero)
+    const sortedSales = sales.sort((a: any, b: any) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    return c.json({ success: true, sales: sortedSales });
+  } catch (error) {
+    console.log(`Error getting sales: ${error}`);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// GET: Obtener una venta específica
+app.get(`${prefix}/sales/:id`, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const sale = await kv.get(`sale:${id}`);
+    
+    if (!sale) {
+      return c.json({ success: false, error: 'Sale not found' }, 404);
+    }
+    
+    return c.json({ success: true, sale });
+  } catch (error) {
+    console.log(`Error getting sale: ${error}`);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Reinicializar todos los productos (eliminar y crear nuevos)
+app.post(`${prefix}/reset-products`, async (c) => {
+  try {
+    // Eliminar todos los productos existentes
+    const existingProducts = await kv.getByPrefix('product:');
+    const deleteKeys = existingProducts.map((p: any) => `product:${p.id}`);
+    if (deleteKeys.length > 0) {
+      await kv.mdel(deleteKeys);
+    }
       const sampleProducts = [
         {
           id: crypto.randomUUID(),
@@ -192,13 +302,454 @@ app.post(`${prefix}/init-sample-data`, async (c) => {
           imageUrl: 'https://images.unsplash.com/photo-1625225233840-695456021cde?w=400',
           createdAt: new Date().toISOString(),
         },
+        {
+          id: crypto.randomUUID(),
+          name: 'Sierra Circular',
+          description: 'Sierra circular 7 1/4 pulgadas 1200W',
+          price: 125.00,
+          unit: 'unidad',
+          category: 'Herramientas Eléctricas',
+          stock: 8,
+          imageUrl: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Cemento Gris',
+          description: 'Cemento Portland tipo I para construcción',
+          price: 8.50,
+          unit: 'saco 50kg',
+          category: 'Materiales de Construcción',
+          stock: 200,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Llave Inglesa Ajustable',
+          description: 'Llave inglesa 12 pulgadas cromada',
+          price: 18.75,
+          unit: 'unidad',
+          category: 'Herramientas',
+          stock: 35,
+          imageUrl: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Clavos de Acero',
+          description: 'Clavos de acero 2 pulgadas',
+          price: 5.99,
+          unit: 'caja (500g)',
+          category: 'Fijaciones',
+          stock: 150,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Brocha para Pintura 3"',
+          description: 'Brocha profesional con cerdas sintéticas',
+          price: 6.50,
+          unit: 'unidad',
+          category: 'Pinturas',
+          stock: 60,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Nivel de Burbuja',
+          description: 'Nivel de aluminio 24 pulgadas con 3 burbujas',
+          price: 22.00,
+          unit: 'unidad',
+          category: 'Medición',
+          stock: 20,
+          imageUrl: 'https://images.unsplash.com/photo-1625225233840-695456021cde?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Tubo PVC 1/2"',
+          description: 'Tubo PVC presión 1/2 pulgada x 6 metros',
+          price: 4.25,
+          unit: 'unidad',
+          category: 'Plomería',
+          stock: 120,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Candado de Seguridad',
+          description: 'Candado de acero laminado 50mm',
+          price: 14.99,
+          unit: 'unidad',
+          category: 'Seguridad',
+          stock: 45,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Cinta Aislante',
+          description: 'Cinta aislante eléctrica negra 20m',
+          price: 2.75,
+          unit: 'unidad',
+          category: 'Electricidad',
+          stock: 80,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Alicate Universal',
+          description: 'Alicate universal 8 pulgadas mango ergonómico',
+          price: 16.50,
+          unit: 'unidad',
+          category: 'Herramientas',
+          stock: 40,
+          imageUrl: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Adhesivo Instantáneo',
+          description: 'Pegamento instantáneo multiuso 20g',
+          price: 3.99,
+          unit: 'unidad',
+          category: 'Adhesivos',
+          stock: 70,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Rodillo para Pintura',
+          description: 'Rodillo profesional 9 pulgadas con mango',
+          price: 9.25,
+          unit: 'unidad',
+          category: 'Pinturas',
+          stock: 55,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Amoladora Angular',
+          description: 'Amoladora angular 4 1/2 pulgadas 900W',
+          price: 95.00,
+          unit: 'unidad',
+          category: 'Herramientas Eléctricas',
+          stock: 12,
+          imageUrl: 'https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Guantes de Trabajo',
+          description: 'Guantes de cuero reforzados talla L',
+          price: 7.50,
+          unit: 'par',
+          category: 'Seguridad',
+          stock: 90,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        // Categoría: Focos
+        {
+          id: crypto.randomUUID(),
+          name: 'Foco LED 9W Blanco Frío',
+          description: 'Foco LED de bajo consumo, equivalente a 60W',
+          price: 4.99,
+          unit: 'unidad',
+          category: 'Focos',
+          stock: 120,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Foco LED 12W Blanco Cálido',
+          description: 'Foco LED cálido ideal para habitaciones',
+          price: 5.99,
+          unit: 'unidad',
+          category: 'Focos',
+          stock: 100,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Foco Reflector LED 50W',
+          description: 'Reflector LED para exteriores e iluminación amplia',
+          price: 24.99,
+          unit: 'unidad',
+          category: 'Focos',
+          stock: 45,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Foco Ahorrador Espiral 20W',
+          description: 'Foco ahorrador espiral de larga duración',
+          price: 3.50,
+          unit: 'unidad',
+          category: 'Focos',
+          stock: 80,
+          imageUrl: 'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        // Categoría: Lavandería
+        {
+          id: crypto.randomUUID(),
+          name: 'Tendedero Plegable de Aluminio',
+          description: 'Tendedero resistente con capacidad para 15kg',
+          price: 29.99,
+          unit: 'unidad',
+          category: 'Lavandería',
+          stock: 35,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Canasto de Ropa Plegable',
+          description: 'Canasto de tela plegable con asas reforzadas',
+          price: 12.50,
+          unit: 'unidad',
+          category: 'Lavandería',
+          stock: 50,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Ganchos de Ropa Plásticos (50 pzas)',
+          description: 'Paquete de 50 ganchos resistentes a la intemperie',
+          price: 6.99,
+          unit: 'paquete',
+          category: 'Lavandería',
+          stock: 70,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Tabla de Planchar Plegable',
+          description: 'Tabla de planchar con superficie antiadherente',
+          price: 34.99,
+          unit: 'unidad',
+          category: 'Lavandería',
+          stock: 25,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        // Categoría: Cocina
+        {
+          id: crypto.randomUUID(),
+          name: 'Llave Mezcladora de Cocina',
+          description: 'Llave mezcladora cromada con caño giratorio',
+          price: 45.00,
+          unit: 'unidad',
+          category: 'Cocina',
+          stock: 30,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Fregadero de Acero Inoxidable',
+          description: 'Fregadero sencillo de 60x50cm acero inoxidable',
+          price: 89.99,
+          unit: 'unidad',
+          category: 'Cocina',
+          stock: 15,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Organizador de Cajón',
+          description: 'Organizador modular para cubiertos y utensilios',
+          price: 8.99,
+          unit: 'unidad',
+          category: 'Cocina',
+          stock: 60,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Rejilla para Fregadero',
+          description: 'Rejilla protectora de acero inoxidable',
+          price: 6.50,
+          unit: 'unidad',
+          category: 'Cocina',
+          stock: 55,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Repisa Flotante para Cocina',
+          description: 'Repisa de madera 60cm con soportes incluidos',
+          price: 22.00,
+          unit: 'unidad',
+          category: 'Cocina',
+          stock: 40,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        // Categoría: Baños
+        {
+          id: crypto.randomUUID(),
+          name: 'Regadera Tipo Lluvia',
+          description: 'Regadera de techo estilo lluvia 25cm cromada',
+          price: 65.00,
+          unit: 'unidad',
+          category: 'Baños',
+          stock: 28,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Espejo de Baño con Marco',
+          description: 'Espejo rectangular 60x80cm marco de aluminio',
+          price: 42.50,
+          unit: 'unidad',
+          category: 'Baños',
+          stock: 22,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Toallero de Barra Doble',
+          description: 'Toallero cromado doble de 60cm',
+          price: 18.99,
+          unit: 'unidad',
+          category: 'Baños',
+          stock: 45,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Jabonera de Acero Inoxidable',
+          description: 'Jabonera de pared con rejilla antideslizante',
+          price: 9.99,
+          unit: 'unidad',
+          category: 'Baños',
+          stock: 65,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Cortina de Baño Impermeable',
+          description: 'Cortina 180x180cm con ganchos incluidos',
+          price: 14.99,
+          unit: 'unidad',
+          category: 'Baños',
+          stock: 50,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Grifo de Lavabo Monomando',
+          description: 'Grifo monomando cromado con válvula de cerámica',
+          price: 38.00,
+          unit: 'unidad',
+          category: 'Baños',
+          stock: 32,
+          imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        // Más Herramientas
+        {
+          id: crypto.randomUUID(),
+          name: 'Caja de Herramientas Metálica',
+          description: 'Caja metálica de 3 niveles para herramientas',
+          price: 38.50,
+          unit: 'unidad',
+          category: 'Herramientas',
+          stock: 30,
+          imageUrl: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Sierra de Mano Profesional',
+          description: 'Sierra de mano 20" con mango ergonómico',
+          price: 16.99,
+          unit: 'unidad',
+          category: 'Herramientas',
+          stock: 45,
+          imageUrl: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Juego de Llaves Allen',
+          description: 'Set de 9 llaves allen métricas',
+          price: 11.50,
+          unit: 'set',
+          category: 'Herramientas',
+          stock: 55,
+          imageUrl: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Llave de Tubo Ajustable',
+          description: 'Llave de tubo 24" ajustable para plomería',
+          price: 24.99,
+          unit: 'unidad',
+          category: 'Herramientas',
+          stock: 35,
+          imageUrl: 'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: crypto.randomUUID(),
+          name: 'Pistola de Calor Industrial',
+          description: 'Pistola de calor 2000W con temperatura regulable',
+          price: 52.00,
+          unit: 'unidad',
+          category: 'Herramientas',
+          stock: 18,
+          imageUrl: 'https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=400',
+          createdAt: new Date().toISOString(),
+        },
       ];
       
       for (const product of sampleProducts) {
         await kv.set(`product:${product.id}`, product);
       }
       
-      return c.json({ success: true, message: 'Sample data initialized', count: sampleProducts.length });
+      return c.json({ success: true, message: 'Products reset successfully', count: sampleProducts.length });
+  } catch (error) {
+    console.log(`Error resetting products: ${error}`);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Inicializar algunos productos de ejemplo si la BD está vacía
+app.post(`${prefix}/init-sample-data`, async (c) => {
+  try {
+    const products = await kv.getByPrefix('product:');
+    
+    if (products.length === 0) {
+      // Reutilizar la misma lógica de reset-products
+      const response = await fetch(`${c.req.url.replace('/init-sample-data', '/reset-products')}`, {
+        method: 'POST',
+        headers: c.req.raw.headers,
+      });
+      return response;
     }
     
     return c.json({ success: true, message: 'Data already exists', count: products.length });

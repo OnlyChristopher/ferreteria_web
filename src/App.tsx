@@ -4,8 +4,10 @@ import ProductCatalog from './components/ProductCatalog';
 import ProductDetail from './components/ProductDetail';
 import Cart from './components/Cart';
 import AdminPanel from './components/AdminPanel';
+import SalesHistory from './components/SalesHistory';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from './utils/supabase/info';
 
 interface Product {
   id: string;
@@ -22,7 +24,7 @@ interface CartItem extends Product {
   quantity: number;
 }
 
-type View = 'catalog' | 'detail' | 'cart' | 'admin';
+type View = 'catalog' | 'detail' | 'cart' | 'admin' | 'sales';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('catalog');
@@ -79,11 +81,43 @@ export default function App() {
     toast.success('Producto eliminado del carrito');
   };
 
-  const handleCheckout = () => {
-    toast.success('¡Compra simulada exitosamente! Total: $' + 
-      cartItems.reduce((sum, item) => sum + item.price * item.quantity * 1.16, 0).toFixed(2));
-    setCartItems([]);
-    setCurrentView('catalog');
+  const handleCheckout = async (paymentMethod: string) => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-2eb8085d/sales`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            items: cartItems.map(item => ({
+              id: item.id,
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price,
+              unit: item.unit,
+            })),
+            paymentMethod: paymentMethod,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        const paymentText = paymentMethod === 'cash' ? 'en efectivo' : 'con tarjeta';
+        toast.success(`¡Compra exitosa ${paymentText}! Total: S/ ${data.sale.total.toFixed(2)}`);
+        setCartItems([]);
+        setCurrentView('sales');
+      } else {
+        toast.error(`Error al procesar la venta: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error processing checkout:', error);
+      toast.error('Error al conectar con el servidor');
+    }
   };
 
   const renderView = () => {
@@ -114,6 +148,8 @@ export default function App() {
         );
       case 'admin':
         return <AdminPanel />;
+      case 'sales':
+        return <SalesHistory />;
       default:
         return null;
     }

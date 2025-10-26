@@ -123,7 +123,7 @@ export default function ProductDetail({ productId, onBack, onAddToCart }: Produc
           <h1 className="text-black mb-4">{product.name}</h1>
           
           <div className="flex items-baseline gap-2 mb-6">
-            <span className="text-blue-600">${product.price.toFixed(2)}</span>
+            <span className="text-blue-600">S/ {product.price.toFixed(2)}</span>
             <span className="text-gray-500">/ {product.unit}</span>
           </div>
 
@@ -189,7 +189,7 @@ export default function ProductDetail({ productId, onBack, onAddToCart }: Produc
                 onClick={handleAddToCart}
               >
                 <ShoppingCart className="w-5 h-5 mr-2" />
-                Agregar al carrito - ${(product.price * quantity).toFixed(2)}
+                Agregar al carrito - S/ {(product.price * quantity).toFixed(2)}
               </Button>
             </>
           )}

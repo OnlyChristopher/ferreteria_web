@@ -169,7 +169,7 @@ export default function ProductCatalog({ onViewDetail, onAddToCart }: ProductCat
                 <p className="text-gray-600 text-sm line-clamp-2 mb-3">{product.description}</p>
                 
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="text-blue-600">${product.price.toFixed(2)}</span>
+                  <span className="text-blue-600">S/ {product.price.toFixed(2)}</span>
                   <span className="text-gray-500 text-sm">/ {product.unit}</span>
                 </div>
                 
