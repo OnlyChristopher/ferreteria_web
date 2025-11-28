@@ -24,15 +24,20 @@ interface SaleItem {
 
 interface Sale {
   id: string;
+  operationNumber?: string;
   date: string;
+  customerName?: string;
   items: SaleItem[];
-  subtotal: number;
-  tax: number;
   total: number;
   paymentMethod?: string;
+  lastFourDigits?: string;
 }
 
-export default function SalesHistory() {
+interface SalesHistoryProps {
+  accessToken: string;
+}
+
+export default function SalesHistory({ accessToken }: SalesHistoryProps) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
@@ -48,7 +53,7 @@ export default function SalesHistory() {
         `https://${projectId}.supabase.co/functions/v1/make-server-2eb8085d/sales`,
         {
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${accessToken}`,
           },
         }
       );
@@ -122,7 +127,7 @@ export default function SalesHistory() {
           </CardHeader>
           <CardContent>
             <div className="text-blue-600">S/ {totalRevenue.toFixed(2)}</div>
-            <p className="text-xs text-gray-500 mt-1">Incluye IVA</p>
+            <p className="text-xs text-gray-500 mt-1">Sin IVA</p>
           </CardContent>
         </Card>
 
@@ -155,12 +160,11 @@ export default function SalesHistory() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID Venta</TableHead>
+                    <TableHead>Nº Operación</TableHead>
+                    <TableHead>Cliente</TableHead>
                     <TableHead>Fecha</TableHead>
                     <TableHead>Productos</TableHead>
                     <TableHead>Método de Pago</TableHead>
-                    <TableHead>Subtotal</TableHead>
-                    <TableHead>IVA</TableHead>
                     <TableHead>Total</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
@@ -169,7 +173,10 @@ export default function SalesHistory() {
                   {sales.map((sale) => (
                     <TableRow key={sale.id}>
                       <TableCell className="font-mono text-sm">
-                        {sale.id.substring(0, 8)}...
+                        {sale.operationNumber || 'N/A'}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm">{sale.customerName || 'Sin nombre'}</span>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -187,7 +194,12 @@ export default function SalesHistory() {
                           {sale.paymentMethod === 'card' ? (
                             <>
                               <CreditCard className="w-4 h-4 text-blue-600" />
-                              <span className="text-sm">Tarjeta</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm">Tarjeta</span>
+                                {sale.lastFourDigits && (
+                                  <span className="text-xs text-gray-500">**** {sale.lastFourDigits}</span>
+                                )}
+                              </div>
                             </>
                           ) : (
                             <>
@@ -197,8 +209,6 @@ export default function SalesHistory() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>S/ {sale.subtotal.toFixed(2)}</TableCell>
-                      <TableCell>S/ {sale.tax.toFixed(2)}</TableCell>
                       <TableCell className="text-blue-600">
                         S/ {sale.total.toFixed(2)}
                       </TableCell>
@@ -225,8 +235,12 @@ export default function SalesHistory() {
                               <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                                   <div>
-                                    <p className="text-sm text-gray-500">ID de Venta</p>
-                                    <p className="font-mono text-sm">{selectedSale.id}</p>
+                                    <p className="text-sm text-gray-500">Nº de Operación</p>
+                                    <p className="font-mono text-sm">{selectedSale.operationNumber || 'N/A'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-gray-500">Cliente</p>
+                                    <p className="text-sm">{selectedSale.customerName || 'Sin nombre'}</p>
                                   </div>
                                   <div>
                                     <p className="text-sm text-gray-500">Fecha</p>
@@ -238,7 +252,12 @@ export default function SalesHistory() {
                                       {selectedSale.paymentMethod === 'card' ? (
                                         <>
                                           <CreditCard className="w-4 h-4 text-blue-600" />
-                                          <span className="text-sm">Tarjeta de Crédito</span>
+                                          <div className="flex flex-col">
+                                            <span className="text-sm">Tarjeta de Crédito</span>
+                                            {selectedSale.lastFourDigits && (
+                                              <span className="text-xs text-gray-500">**** {selectedSale.lastFourDigits}</span>
+                                            )}
+                                          </div>
                                         </>
                                       ) : (
                                         <>
@@ -270,16 +289,8 @@ export default function SalesHistory() {
                                 </div>
 
                                 <div className="border-t pt-4 space-y-2">
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-600">Subtotal:</span>
-                                    <span>S/ {selectedSale.subtotal.toFixed(2)}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-600">IVA (16%):</span>
-                                    <span>S/ {selectedSale.tax.toFixed(2)}</span>
-                                  </div>
                                   <div className="flex justify-between border-t pt-2">
-                                    <span>Total:</span>
+                                    <span>Total Pagado:</span>
                                     <span className="text-blue-600">
                                       S/ {selectedSale.total.toFixed(2)}
                                     </span>

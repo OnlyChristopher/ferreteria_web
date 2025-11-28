@@ -1,6 +1,7 @@
 import { Hono } from 'npm:hono';
 import { cors } from 'npm:hono/cors';
 import { logger } from 'npm:hono/logger';
+import { createClient } from 'npm:@supabase/supabase-js@2.49.2';
 import * as kv from './kv_store.tsx';
 
 const app = new Hono();
@@ -10,6 +11,132 @@ app.use('*', logger(console.log));
 
 // Prefix para todas las rutas
 const prefix = '/make-server-2eb8085d';
+
+// Cliente de Supabase
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+);
+
+// Middleware para verificar autenticación
+const requireAuth = async (c: any, next: any) => {
+  const accessToken = c.req.header('Authorization')?.split(' ')[1];
+  
+  if (!accessToken) {
+    return c.json({ success: false, error: 'No autorizado' }, 401);
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+  
+  if (error || !user) {
+    return c.json({ success: false, error: 'Token inválido o expirado' }, 401);
+  }
+
+  c.set('user', user);
+  await next();
+};
+
+// Middleware para verificar rol de admin
+const requireAdmin = async (c: any, next: any) => {
+  const user = c.get('user');
+  
+  if (user.user_metadata?.role !== 'admin') {
+    return c.json({ success: false, error: 'Acceso denegado. Se requiere rol de administrador.' }, 403);
+  }
+
+  await next();
+};
+
+// POST: Registro de usuario
+app.post(`${prefix}/signup`, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email, password, name, role } = body;
+
+    if (!email || !password || !name) {
+      return c.json({ success: false, error: 'Faltan campos requeridos' }, 400);
+    }
+
+    // Solo permitir rol 'user' o 'admin'
+    const userRole = role === 'admin' ? 'admin' : 'user';
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: { 
+        name,
+        role: userRole,
+      },
+      // Automáticamente confirmar el email ya que no tenemos servidor de correo configurado
+      email_confirm: true,
+    });
+
+    if (error) {
+      console.log(`Error creating user: ${error.message}`);
+      return c.json({ success: false, error: error.message }, 400);
+    }
+
+    return c.json({ 
+      success: true, 
+      message: 'Usuario creado exitosamente',
+      user: {
+        id: data.user?.id,
+        email: data.user?.email,
+        name: data.user?.user_metadata?.name,
+        role: data.user?.user_metadata?.role,
+      }
+    });
+  } catch (error: any) {
+    console.log(`Error in signup: ${error}`);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// POST: Crear usuarios iniciales (admin y usuario de prueba)
+app.post(`${prefix}/init-users`, async (c) => {
+  try {
+    // Crear usuario admin
+    const adminEmail = 'admin@ferreteria.com';
+    const { data: existingAdmin } = await supabase.auth.admin.listUsers();
+    const adminExists = existingAdmin?.users?.some((u: any) => u.email === adminEmail);
+
+    if (!adminExists) {
+      await supabase.auth.admin.createUser({
+        email: adminEmail,
+        password: 'admin123',
+        user_metadata: { 
+          name: 'Administrador',
+          role: 'admin',
+        },
+        email_confirm: true,
+      });
+    }
+
+    // Crear usuario de prueba
+    const userEmail = 'usuario@ferreteria.com';
+    const userExists = existingAdmin?.users?.some((u: any) => u.email === userEmail);
+
+    if (!userExists) {
+      await supabase.auth.admin.createUser({
+        email: userEmail,
+        password: 'user123',
+        user_metadata: { 
+          name: 'Usuario de Prueba',
+          role: 'user',
+        },
+        email_confirm: true,
+      });
+    }
+
+    return c.json({ 
+      success: true, 
+      message: 'Usuarios iniciales creados',
+    });
+  } catch (error: any) {
+    console.log(`Error initializing users: ${error}`);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
 
 // GET: Obtener todos los productos
 app.get(`${prefix}/products`, async (c) => {
@@ -39,8 +166,8 @@ app.get(`${prefix}/products/:id`, async (c) => {
   }
 });
 
-// POST: Crear un nuevo producto
-app.post(`${prefix}/products`, async (c) => {
+// POST: Crear un nuevo producto (requiere admin)
+app.post(`${prefix}/products`, requireAuth, requireAdmin, async (c) => {
   try {
     const body = await c.req.json();
     const { name, description, price, unit, category, stock, imageUrl } = body;
@@ -71,8 +198,8 @@ app.post(`${prefix}/products`, async (c) => {
   }
 });
 
-// PUT: Actualizar un producto existente
-app.put(`${prefix}/products/:id`, async (c) => {
+// PUT: Actualizar un producto existente (requiere admin)
+app.put(`${prefix}/products/:id`, requireAuth, requireAdmin, async (c) => {
   try {
     const id = c.req.param('id');
     const body = await c.req.json();
@@ -100,8 +227,8 @@ app.put(`${prefix}/products/:id`, async (c) => {
   }
 });
 
-// DELETE: Eliminar un producto
-app.delete(`${prefix}/products/:id`, async (c) => {
+// DELETE: Eliminar un producto (requiere admin)
+app.delete(`${prefix}/products/:id`, requireAuth, requireAdmin, async (c) => {
   try {
     const id = c.req.param('id');
     
@@ -123,10 +250,14 @@ app.delete(`${prefix}/products/:id`, async (c) => {
 app.post(`${prefix}/sales`, async (c) => {
   try {
     const body = await c.req.json();
-    const { items, paymentMethod } = body;
+    const { items, paymentMethod, customerName, lastFourDigits } = body;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return c.json({ success: false, error: 'No items in sale' }, 400);
+    }
+    
+    if (!customerName || !customerName.trim()) {
+      return c.json({ success: false, error: 'Customer name is required' }, 400);
     }
     
     // Verificar stock disponible para todos los items
@@ -165,13 +296,16 @@ app.post(`${prefix}/sales`, async (c) => {
     
     // Crear registro de venta
     const saleId = crypto.randomUUID();
-    const subtotal = items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
-    const tax = subtotal * 0.16;
-    const total = subtotal + tax;
+    const total = items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
+    
+    // Generar número de operación
+    const operationNumber = `OP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
     const sale = {
       id: saleId,
+      operationNumber,
       date: new Date().toISOString(),
+      customerName: customerName.trim(),
       items: items.map((item: any) => ({
         productId: item.id,
         productName: item.name,
@@ -179,10 +313,9 @@ app.post(`${prefix}/sales`, async (c) => {
         price: item.price,
         unit: item.unit,
       })),
-      subtotal,
-      tax,
       total,
       paymentMethod: paymentMethod || 'cash',
+      ...(lastFourDigits && { lastFourDigits }),
     };
     
     await kv.set(`sale:${saleId}`, sale);
@@ -194,8 +327,8 @@ app.post(`${prefix}/sales`, async (c) => {
   }
 });
 
-// GET: Obtener historial de ventas
-app.get(`${prefix}/sales`, async (c) => {
+// GET: Obtener historial de ventas (requiere admin)
+app.get(`${prefix}/sales`, requireAuth, requireAdmin, async (c) => {
   try {
     const sales = await kv.getByPrefix('sale:');
     // Ordenar por fecha descendente (más recientes primero)
@@ -226,8 +359,8 @@ app.get(`${prefix}/sales/:id`, async (c) => {
   }
 });
 
-// Reinicializar todos los productos (eliminar y crear nuevos)
-app.post(`${prefix}/reset-products`, async (c) => {
+// Reinicializar todos los productos (eliminar y crear nuevos) (requiere admin)
+app.post(`${prefix}/reset-products`, requireAuth, requireAdmin, async (c) => {
   try {
     // Eliminar todos los productos existentes
     const existingProducts = await kv.getByPrefix('product:');

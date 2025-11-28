@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Trash2, Plus, Minus, ShoppingBag, CreditCard, Wallet } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
@@ -22,20 +23,19 @@ interface CartProps {
   cartItems: CartItem[];
   onUpdateQuantity: (id: string, quantity: number) => void;
   onRemoveItem: (id: string) => void;
-  onCheckout: (paymentMethod: string) => void;
+  onCheckout: (paymentData: any) => void;
 }
 
 export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onCheckout }: CartProps) {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [customerName, setCustomerName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardName, setCardName] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [cvv, setCvv] = useState('');
   
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = subtotal * 0.16; // IVA 16%
-  const total = subtotal + tax;
+  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const formatCardNumber = (value: string) => {
     const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
@@ -83,15 +83,88 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
     }
   };
 
+  const handleCardNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '');
+    if (value.length <= 100) {
+      setCardName(value.toUpperCase());
+    }
+  };
+
+  const validateExpiryDate = (value: string): boolean => {
+    if (!value || value.length !== 5) return false;
+    
+    const [month, year] = value.split('/');
+    const monthNum = parseInt(month);
+    const yearNum = parseInt('20' + year);
+    
+    if (monthNum < 1 || monthNum > 12) return false;
+    
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    
+    if (yearNum < currentYear) return false;
+    if (yearNum === currentYear && monthNum < currentMonth) return false;
+    
+    return true;
+  };
+
   const handleCompletePayment = () => {
+    // Validar nombre del cliente
+    if (!customerName.trim()) {
+      alert('Por favor ingresa tu nombre');
+      return;
+    }
+
+    // Validaciones adicionales para tarjeta
+    if (paymentMethod === 'card') {
+      if (!cardName.trim()) {
+        alert('Por favor ingresa el nombre en la tarjeta');
+        return;
+      }
+      if (cardNumber.replace(/\s/g, '').length !== 16) {
+        alert('El número de tarjeta debe tener 16 dígitos');
+        return;
+      }
+      if (!validateExpiryDate(expiryDate)) {
+        alert('Por favor ingresa una fecha de expiración válida y futura');
+        return;
+      }
+      if (cvv.length < 3 || cvv.length > 4) {
+        alert('El CVV debe tener 3 o 4 dígitos');
+        return;
+      }
+    }
+
+    const paymentData = {
+      paymentMethod,
+      customerName: customerName.trim(),
+      ...(paymentMethod === 'card' && {
+        lastFourDigits: cardNumber.replace(/\s/g, '').slice(-4),
+      }),
+    };
+
     setIsPaymentDialogOpen(false);
-    onCheckout(paymentMethod);
+    onCheckout(paymentData);
+    
     // Reset form
     setPaymentMethod('cash');
+    setCustomerName('');
     setCardNumber('');
     setCardName('');
     setExpiryDate('');
     setCvv('');
+  };
+
+  const handleDialogClose = (open: boolean) => {
+    setIsPaymentDialogOpen(open);
+    if (!open) {
+      // Reset temporal de campos de tarjeta cuando se cierra
+      setCardNumber('');
+      setCardName('');
+      setExpiryDate('');
+      setCvv('');
+    }
   };
 
   if (cartItems.length === 0) {
@@ -183,14 +256,6 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-between">
-                <span className="text-gray-600">Subtotal:</span>
-                <span>S/ {subtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">IVA (16%):</span>
-                <span>S/ {tax.toFixed(2)}</span>
-              </div>
-              <div className="border-t pt-4 flex justify-between">
                 <span>Total:</span>
                 <span className="text-blue-600">S/ {total.toFixed(2)}</span>
               </div>
@@ -210,9 +275,10 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
             <CardContent className="p-4">
               <h4 className="text-black mb-2">Información de Envío</h4>
               <p className="text-gray-600 text-sm">
-                • Envío gratis en compras mayores a $500<br />
-                • Entrega en 2-3 días hábiles<br />
-                • Devoluciones hasta 30 días
+                • Recojo en tienda disponible<br />
+                • Entrega a domicilio: 2-3 días hábiles<br />
+                • Costo de envío según distrito<br />
+                • Devoluciones: hasta 15 días
               </p>
             </CardContent>
           </Card>
@@ -220,7 +286,7 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
       </div>
 
       {/* Payment Dialog */}
-      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+      <Dialog open={isPaymentDialogOpen} onOpenChange={handleDialogClose}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Método de Pago</DialogTitle>
@@ -230,6 +296,23 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
           </DialogHeader>
 
           <div className="space-y-6">
+            {/* Campo de nombre del cliente (siempre visible) */}
+            <div className="space-y-2">
+              <Label htmlFor="customerName">Nombre Completo *</Label>
+              <Input
+                id="customerName"
+                placeholder="Ingresa tu nombre completo"
+                value={customerName}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '');
+                  if (value.length <= 100) {
+                    setCustomerName(value);
+                  }
+                }}
+                required
+              />
+            </div>
+
             <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
               <div className="flex items-center space-x-2 border rounded-lg p-4 cursor-pointer hover:bg-gray-50">
                 <RadioGroupItem value="cash" id="cash" />
@@ -257,7 +340,7 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
             {paymentMethod === 'card' && (
               <div className="space-y-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <div className="space-y-2">
-                  <Label htmlFor="cardNumber">Número de Tarjeta</Label>
+                  <Label htmlFor="cardNumber">Número de Tarjeta *</Label>
                   <div className="relative">
                     <Input
                       id="cardNumber"
@@ -265,34 +348,37 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
                       value={cardNumber}
                       onChange={handleCardNumberChange}
                       className="pl-10"
+                      required
                     />
                     <CreditCard className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="cardName">Nombre en la Tarjeta</Label>
+                  <Label htmlFor="cardName">Nombre en la Tarjeta *</Label>
                   <Input
                     id="cardName"
                     placeholder="JUAN PÉREZ"
                     value={cardName}
-                    onChange={(e) => setCardName(e.target.value.toUpperCase())}
+                    onChange={handleCardNameChange}
+                    required
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="expiry">Fecha de Expiración</Label>
+                    <Label htmlFor="expiry">Fecha de Expiración *</Label>
                     <Input
                       id="expiry"
                       placeholder="MM/YY"
                       value={expiryDate}
                       onChange={handleExpiryChange}
+                      required
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="cvv">CVV</Label>
+                    <Label htmlFor="cvv">CVV *</Label>
                     <Input
                       id="cvv"
                       placeholder="123"
@@ -300,6 +386,7 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
                       onChange={handleCvvChange}
                       type="password"
                       maxLength={4}
+                      required
                     />
                   </div>
                 </div>
@@ -314,14 +401,6 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
             )}
 
             <div className="border-t pt-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Subtotal:</span>
-                <span>S/ {subtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">IVA (16%):</span>
-                <span>S/ {tax.toFixed(2)}</span>
-              </div>
               <div className="flex justify-between pt-2 border-t">
                 <span>Total a Pagar:</span>
                 <span className="text-blue-600">S/ {total.toFixed(2)}</span>
@@ -333,7 +412,7 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
                 type="button"
                 variant="outline"
                 className="flex-1"
-                onClick={() => setIsPaymentDialogOpen(false)}
+                onClick={() => handleDialogClose(false)}
               >
                 Cancelar
               </Button>
@@ -341,7 +420,7 @@ export default function Cart({ cartItems, onUpdateQuantity, onRemoveItem, onChec
                 type="button"
                 className="flex-1 bg-blue-600 hover:bg-blue-700"
                 onClick={handleCompletePayment}
-                disabled={paymentMethod === 'card' && (!cardNumber || !cardName || !expiryDate || !cvv)}
+                disabled={!customerName.trim() || (paymentMethod === 'card' && (!cardNumber || !cardName || !expiryDate || !cvv))}
               >
                 Confirmar Pago
               </Button>

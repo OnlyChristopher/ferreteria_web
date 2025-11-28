@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Header from './components/Header';
 import ProductCatalog from './components/ProductCatalog';
 import ProductDetail from './components/ProductDetail';
 import Cart from './components/Cart';
 import AdminPanel from './components/AdminPanel';
 import SalesHistory from './components/SalesHistory';
+import Login from './components/Login';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner@2.0.3';
+import { getSupabaseClient } from './utils/supabase/client';
 import { projectId, publicAnonKey } from './utils/supabase/info';
 
 interface Product {
@@ -24,14 +26,93 @@ interface CartItem extends Product {
   quantity: number;
 }
 
+interface User {
+  id: string;
+  email: string | undefined;
+  name: string;
+  role: 'admin' | 'user';
+  accessToken: string;
+}
+
 type View = 'catalog' | 'detail' | 'cart' | 'admin' | 'sales';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('catalog');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const supabase = getSupabaseClient();
+
+  useEffect(() => {
+    // Verificar si hay una sesión activa
+    checkSession();
+    // Inicializar usuarios de prueba
+    initializeUsers();
+  }, []);
+
+  const checkSession = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      
+      if (data.session && data.session.user) {
+        const userData = {
+          id: data.session.user.id,
+          email: data.session.user.email,
+          name: data.session.user.user_metadata?.name || 'Usuario',
+          role: data.session.user.user_metadata?.role || 'user',
+          accessToken: data.session.access_token,
+        };
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error('Error checking session:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const initializeUsers = async () => {
+    try {
+      await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-2eb8085d/init-users`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+    } catch (error) {
+      console.error('Error initializing users:', error);
+    }
+  };
+
+  const handleLogin = (userData: User) => {
+    setUser(userData);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setCurrentView('catalog');
+      setCartItems([]);
+      toast.success('Sesión cerrada exitosamente');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      toast.error('Error al cerrar sesión');
+    }
+  };
 
   const handleNavigate = (view: View) => {
+    // Verificar permisos antes de navegar
+    if ((view === 'admin' || view === 'sales') && user?.role !== 'admin') {
+      toast.error('Acceso denegado. Se requiere rol de administrador.');
+      return;
+    }
+    
     setCurrentView(view);
     if (view !== 'detail') {
       setSelectedProductId(null);
@@ -81,8 +162,9 @@ export default function App() {
     toast.success('Producto eliminado del carrito');
   };
 
-  const handleCheckout = async (paymentMethod: string) => {
+  const handleCheckout = async (paymentData: any) => {
     try {
+      // Los usuarios normales pueden hacer checkout sin autenticación especial
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-2eb8085d/sales`,
         {
@@ -99,7 +181,9 @@ export default function App() {
               price: item.price,
               unit: item.unit,
             })),
-            paymentMethod: paymentMethod,
+            paymentMethod: paymentData.paymentMethod,
+            customerName: paymentData.customerName,
+            lastFourDigits: paymentData.lastFourDigits,
           }),
         }
       );
@@ -107,10 +191,15 @@ export default function App() {
       const data = await response.json();
 
       if (data.success) {
-        const paymentText = paymentMethod === 'cash' ? 'en efectivo' : 'con tarjeta';
+        const paymentText = paymentData.paymentMethod === 'cash' ? 'en efectivo' : 'con tarjeta';
         toast.success(`¡Compra exitosa ${paymentText}! Total: S/ ${data.sale.total.toFixed(2)}`);
         setCartItems([]);
-        setCurrentView('sales');
+        // Solo redirigir a ventas si es admin
+        if (user?.role === 'admin') {
+          setCurrentView('sales');
+        } else {
+          setCurrentView('catalog');
+        }
       } else {
         toast.error(`Error al procesar la venta: ${data.error}`);
       }
@@ -147,13 +236,33 @@ export default function App() {
           />
         );
       case 'admin':
-        return <AdminPanel />;
+        return <AdminPanel accessToken={user?.accessToken || ''} />;
       case 'sales':
-        return <SalesHistory />;
+        return <SalesHistory accessToken={user?.accessToken || ''} />;
       default:
         return null;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <Login onLogin={handleLogin} />
+        <Toaster position="top-right" />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -161,6 +270,8 @@ export default function App() {
         currentView={currentView}
         onNavigate={handleNavigate}
         cartItemsCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
+        user={user}
+        onLogout={handleLogout}
       />
       
       <main className="pb-8">

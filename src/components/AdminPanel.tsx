@@ -21,7 +21,11 @@ interface Product {
   imageUrl: string;
 }
 
-export default function AdminPanel() {
+interface AdminPanelProps {
+  accessToken: string;
+}
+
+export default function AdminPanel({ accessToken }: AdminPanelProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -71,6 +75,36 @@ export default function AdminPanel() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validaciones
+    if (formData.name.length > 150) {
+      toast.error('El nombre no puede exceder 150 caracteres');
+      return;
+    }
+    if (formData.description.length > 500) {
+      toast.error('La descripción no puede exceder 500 caracteres');
+      return;
+    }
+    if (formData.unit.length > 30) {
+      toast.error('La unidad no puede exceder 30 caracteres');
+      return;
+    }
+    if (formData.category.length > 50) {
+      toast.error('La categoría no puede exceder 50 caracteres');
+      return;
+    }
+    if (formData.imageUrl.length > 500) {
+      toast.error('La URL de la imagen no puede exceder 500 caracteres');
+      return;
+    }
+    if (parseFloat(formData.price) <= 0) {
+      toast.error('El precio debe ser mayor a 0');
+      return;
+    }
+    if (parseInt(formData.stock) < 0 || !Number.isInteger(parseFloat(formData.stock))) {
+      toast.error('El stock debe ser un número entero no negativo');
+      return;
+    }
+
     try {
       const url = editingProduct
         ? `https://${projectId}.supabase.co/functions/v1/make-server-2eb8085d/products/${editingProduct.id}`
@@ -81,7 +115,7 @@ export default function AdminPanel() {
       const response = await fetch(url, {
         method,
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(formData),
@@ -113,7 +147,7 @@ export default function AdminPanel() {
         {
           method: 'DELETE',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${accessToken}`,
           },
         }
       );
@@ -171,7 +205,7 @@ export default function AdminPanel() {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${accessToken}`,
           },
         }
       );
@@ -245,58 +279,88 @@ export default function AdminPanel() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="name">Nombre del Producto *</Label>
+                <Label htmlFor="name">Nombre del Producto * (máx. 150 caracteres)</Label>
                 <Input
                   id="name"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 150) {
+                      setFormData({ ...formData, name: e.target.value });
+                    }
+                  }}
                   required
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  {formData.name.length}/150 caracteres
+                </p>
               </div>
 
               <div>
-                <Label htmlFor="description">Descripción</Label>
+                <Label htmlFor="description">Descripción (máx. 500 caracteres)</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 500) {
+                      setFormData({ ...formData, description: e.target.value });
+                    }
+                  }}
                   rows={3}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  {formData.description.length}/500 caracteres
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="price">Precio *</Label>
+                  <Label htmlFor="price">Precio * (S/)</Label>
                   <Input
                     id="price"
                     type="number"
                     step="0.01"
+                    min="0.01"
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">Debe ser mayor a 0</p>
                 </div>
 
                 <div>
-                  <Label htmlFor="unit">Unidad *</Label>
+                  <Label htmlFor="unit">Unidad * (máx. 30 caracteres)</Label>
                   <Input
                     id="unit"
                     value={formData.unit}
-                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                    onChange={(e) => {
+                      if (e.target.value.length <= 30) {
+                        setFormData({ ...formData, unit: e.target.value });
+                      }
+                    }}
                     placeholder="ej: unidad, metro, kilogramo"
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.unit.length}/30 caracteres
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="category">Categoría</Label>
+                  <Label htmlFor="category">Categoría (máx. 50 caracteres)</Label>
                   <Input
                     id="category"
                     value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    onChange={(e) => {
+                      if (e.target.value.length <= 50) {
+                        setFormData({ ...formData, category: e.target.value });
+                      }
+                    }}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.category.length}/50 caracteres
+                  </p>
                 </div>
 
                 <div>
@@ -304,21 +368,31 @@ export default function AdminPanel() {
                   <Input
                     id="stock"
                     type="number"
+                    min="0"
+                    step="1"
                     value={formData.stock}
                     onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
                   />
+                  <p className="text-xs text-gray-500 mt-1">Número entero no negativo</p>
                 </div>
               </div>
 
               <div>
-                <Label htmlFor="imageUrl">URL de la Imagen</Label>
+                <Label htmlFor="imageUrl">URL de la Imagen (máx. 500 caracteres)</Label>
                 <Input
                   id="imageUrl"
                   type="url"
                   value={formData.imageUrl}
-                  onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 500) {
+                      setFormData({ ...formData, imageUrl: e.target.value });
+                    }
+                  }}
                   placeholder="https://ejemplo.com/imagen.jpg"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  {formData.imageUrl.length}/500 caracteres
+                </p>
               </div>
 
               <div className="flex gap-2 pt-4">
